@@ -18,10 +18,11 @@ COPY . .
 
 # 環境変数でポートを設定（Cloud Runから提供される）
 ENV PORT=8080
+ENV PYTHONPATH=/app
 
 # Cloud Runのヘルスチェック用
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8080/')"
+    CMD python -c "import httpx; httpx.get('http://localhost:8080/')"
 
-# Flaskアプリケーションを起動
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app
+# FastAPI + Gunicorn + Uvicorn workersで起動
+CMD exec gunicorn app.main:app -c gunicorn.conf.py
