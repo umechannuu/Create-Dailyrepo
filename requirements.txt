@@ -1,5 +1,8 @@
-flask
+fastapi
+uvicorn[standard]
+gunicorn
+httpx
 requests
 google-generativeai
 python-dotenv
-gunicorn
+python-multipart
