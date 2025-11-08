@@ -6,7 +6,7 @@ from app.services.slack_service import fetch_all_channels_messages_async
 from app.services.gemini_service import summarize_channel_messages_async
 from app.services.notion_service import create_multiple_reports_async
 from utils.formatter import group_messages_by_channel, extract_all_urls_from_messages
-from utils.time_utils import get_today_range
+from utils.time_utils import get_time_range_by_hours
 
 
 async def process_channel_async(
@@ -38,18 +38,21 @@ async def process_channel_async(
     return channel_name, summary, urls
 
 
-async def generate_daily_report_async() -> Dict:
+async def generate_daily_report_async(hours: int = 24) -> Dict:
     """
     日報を非同期で生成してNotionに投稿
+    
+    Args:
+        hours: 取得する時間範囲（デフォルト: 24時間）
     
     Returns:
         処理結果の辞書
     """
-    print("[DEBUG] generate_daily_report_async() 開始")
+    print(f"[DEBUG] generate_daily_report_async() 開始 (過去{hours}時間)")
     
     # 時刻範囲を取得
     print("[DEBUG] 時刻範囲を取得中...")
-    oldest, latest = get_today_range()
+    oldest, latest = get_time_range_by_hours(hours)
     print(f"[DEBUG] 時刻範囲: {oldest} - {latest}")
     
     # 全チャンネルのメッセージを非同期で取得
@@ -94,8 +97,8 @@ async def generate_daily_report_async() -> Dict:
     
     # Notionに並列投稿
     print("[DEBUG] Notionに投稿中...")
-    today = datetime.now().strftime("%Y-%m-%d")
-    print(f"[DEBUG] 日付: {today}")
+    today = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"[DEBUG] タイトル日時: {today}")
     
     notion_results = await create_multiple_reports_async(
         today, 
@@ -114,7 +117,8 @@ async def generate_daily_report_async() -> Dict:
     
     return {
         "status": "success",
-        "message": "日報生成が完了しました",
+        "message": f"過去{hours}時間の日報生成が完了しました",
+        "hours": hours,
         "channels_processed": len(channel_summaries),
         "notion_results": notion_results
     }

@@ -41,3 +41,24 @@ def format_timestamp(ts, fmt="%Y-%m-%d %H:%M:%S"):
     jst = ZoneInfo('Asia/Tokyo')
     dt = datetime.fromtimestamp(float(ts), tz=jst)
     return dt.strftime(fmt)
+
+
+def get_time_range_by_hours(hours: int = 24):
+    """
+    指定した時間数の範囲でUNIXタイムスタンプを取得
+    
+    Args:
+        hours: 現在時刻から遡る時間数（デフォルト: 24時間）
+    
+    Returns:
+        (oldest, latest) のタプル（UNIXタイムスタンプ）
+    """
+    jst = ZoneInfo('Asia/Tokyo')
+    now = datetime.now(jst)
+    
+    # 指定時間前
+    start = now - timedelta(hours=hours)
+    # 現在時刻
+    end = now
+    
+    return start.timestamp(), end.timestamp()

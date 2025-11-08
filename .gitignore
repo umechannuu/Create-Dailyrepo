@@ -47,5 +47,8 @@ data/
 # uv
 .venv/
 uv.lock
+pyproject.toml
 
 docs/
+
+setup_slack_interractive.sh
