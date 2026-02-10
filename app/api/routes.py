@@ -4,6 +4,7 @@ from typing import Optional
 import httpx
 
 from app.services.report_service import generate_daily_report_async
+from utils.time_utils import parse_time_range
 
 router = APIRouter()
 
@@ -15,6 +16,12 @@ async def health_check():
         "status": "ok",
         "message": "Daily Report Bot is running"
     }
+
+
+@router.get("/healthz")
+async def healthz():
+    """軽量ヘルスチェック用（依存なし、Cloud Scheduler用）"""
+    return {"status": "ok"}
 
 
 @router.get("/test")
@@ -30,11 +37,15 @@ async def test_generation():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def background_report_task(response_url: Optional[str] = None):
+async def background_report_task(
+    response_url: Optional[str] = None,
+    oldest: Optional[float] = None,
+    latest: Optional[float] = None
+):
     """バックグラウンドで日報生成を実行"""
     try:
         print("[INFO] バックグラウンドで日報生成を開始...")
-        result = await generate_daily_report_async()
+        result = await generate_daily_report_async(oldest=oldest, latest=latest)
         print("[INFO] 日報生成が完了しました")
         
         # 完了通知をSlackに送信
@@ -65,6 +76,7 @@ async def background_report_task(response_url: Optional[str] = None):
 async def handle_slack_command(
     background_tasks: BackgroundTasks,
     command: str = Form(...),
+    text: Optional[str] = Form(None),
     response_url: Optional[str] = Form(None)
 ):
     """Slackのスラッシュコマンドを処理"""
@@ -72,11 +84,20 @@ async def handle_slack_command(
     if command != "/dailyreport":
         raise HTTPException(status_code=400, detail="無効なコマンドです。")
     
+    # 時間範囲をパース
+    try:
+        oldest, latest, range_description = parse_time_range(text)
+    except ValueError as e:
+        return {
+            "response_type": "ephemeral",
+            "text": f"[ERROR] 時間指定エラー: {str(e)}\n使用例: `/dailyreport 6` (6時間前から) または `/dailyreport 2026-01-06 09:00`"
+        }
+    
     # バックグラウンドタスクを追加
-    background_tasks.add_task(background_report_task, response_url)
+    background_tasks.add_task(background_report_task, response_url, oldest, latest)
     
     # 即座にレスポンスを返す（3秒以内）
     return {
         "response_type": "in_channel",
-        "text": "[INFO] 日報生成を開始しました。完了までしばらくお待ちください..."
+        "text": f"[INFO] 日報生成を開始しました。\n対象期間: {range_description}"
     }

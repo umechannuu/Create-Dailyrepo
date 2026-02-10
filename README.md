@@ -4,25 +4,31 @@ Slackの複数チャンネルから当日のメッセージを収集し、Gemini
 
 ## システム概要
 
-1. Slackで `/dailyreport` コマンドを実行
-2. 指定チャンネルから前日のメッセージを取得
-3. Gemini 2.5 Flash でチャンネルごとに要約生成
-4. Notionデータベースにチャンネルごとのページを作成
+1. Slackで `/dailyreport` コマンドを実行（時間指定オプション対応）
+2. 指定チャンネルから対象期間のメッセージを非同期で取得
+3. Gemini 2.5 Flash でチャンネルごとに並列要約・TODO提案を生成
+4. Notionデータベースにチャンネルごとのページを並列作成
 5. メッセージ内のURLを参考文献として自動添付
 
 ## 主要機能
 
-- Slackスラッシュコマンド対応（非同期処理）
-- 複数チャンネルの一括処理
+- FastAPI + 非同期処理による高速化
+- チャンネルごとの並列処理（Slack取得、Gemini要約、Notion投稿）
+- Slackスラッシュコマンド対応（BackgroundTasks使用）
 - AI要約による日報自動生成
+- AI提案TODO（優先度・所要時間付き）
+- 時間指定機能（時間数 / 日時 / 日付で期間指定可能）
 - URL自動検出と参考文献リンク生成
 - チャンネル別のタグ付け
-- Google Cloud Run対応（本番環境）
+- 軽量ヘルスチェック（`/healthz`）
+- Google Cloud Run対応（Gunicorn + Uvicorn workers）
 
 ## 技術スタック
 
 - Python 3.12+ / uv（パッケージマネージャー）
-- Flask + Gunicorn
+- FastAPI（非同期Webフレームワーク）
+- Gunicorn + Uvicorn workers（本番環境）
+- httpx（非同期HTTPクライアント）
 - Slack Web API
 - Google Gemini 2.5 Flash API
 - Notion REST API
@@ -66,7 +72,7 @@ uv sync
 
 ### 4. 対象チャンネルの設定
 
-`slack_client.py` の `CHANNEL_NAME_MAP` を編集：
+`app/core/config.py` の `CHANNEL_NAME_MAP` を編集：
 
 ```python
 CHANNEL_NAME_MAP = {
@@ -104,8 +110,11 @@ Notionインテグレーションをデータベースに接続してくださ�
 ### ローカル開発
 
 ```bash
-# サーバ起動
-uv run python main.py
+# サーバ起動（開発モード）
+uv run python run.py
+
+# または直接FastAPIアプリを起動
+uv run uvicorn app.main:app --reload --port 8080
 
 # ブラウザでテスト
 # http://localhost:8080/test
@@ -126,36 +135,60 @@ uv run python main.py
 Slackで以下を入力：
 
 ```
-/dailyreport
+/dailyreport          # デフォルト（過去18時間）
+/dailyreport 6        # 過去6時間
+/dailyreport 24       # 過去24時間
+/dailyreport 2026-01-06 09:00  # 指定日時から現在まで
+/dailyreport 2026-01-06        # 指定日の0時から現在まで
 ```
 
 処理は非同期で実行されます：
-1. 即座に「日報生成を開始しました」メッセージが表示
-2. バックグラウンドで処理実行（2-3分）
+1. 即座に「日報生成を開始しました」メッセージと対象期間が表示
+2. バックグラウンドで並列処理実行（1-2分に短縮）
 3. 完了後、Slackに通知
 
 ## 処理の流れ
 
-1. スラッシュコマンド受信
-2. 前日0時〜24時のメッセージを各チャンネルから取得
-3. チャンネルごとにメッセージをグループ化
-4. Gemini APIで要約生成（作業内容・知見・予定の3セクション）
-5. URLを抽出して参考文献リストを作成
-6. Notionにチャンネル別ページを作成
+1. スラッシュコマンド受信（FastAPI）、時間範囲をパース
+2. BackgroundTasksでバックグラウンド処理開始
+3. 指定期間のメッセージを全チャンネルから並列取得（httpx）
+4. チャンネルごとにメッセージをグループ化
+5. 各チャンネルを並列処理：
+   - Gemini APIで要約・TODO提案生成（asyncio.gather）
+   - URLを抽出して参考文献リストを作成
+6. Notionにチャンネル別ページを並列作成（httpx）
+7. 完了通知をSlackに送信
 
 ## プロジェクト構成
 
 ```
 daily_report/
-├── main.py                 # Flaskアプリケーション
-├── slack_client.py         # Slackメッセージ取得
-├── gemini_client.py        # Gemini要約生成
-├── notion_client.py        # Notion投稿処理
-├── utils/
-│   ├── formatter.py        # メッセージ整形・URL抽出
-│   └── time_utils.py       # 時刻処理（zoneinfo使用）
-├── requirements.txt        # Python依存パッケージ
-├── Dockerfile              # コンテナイメージ定義
-├── deploy-simple.sh        # Cloud Runデプロイスクリプト
-└── .env                    # 環境変数（要作成）
+├── app/                        # FastAPIアプリケーション
+│   ├── __init__.py
+│   ├── main.py                 # FastAPIエントリーポイント
+│   ├── core/                   # コア設定
+│   │   ├── __init__.py
+│   │   └── config.py           # 環境変数・設定管理
+│   ├── api/                    # APIエンドポイント
+│   │   ├── __init__.py
+│   │   └── routes.py           # ルート定義
+│   └── services/               # ビジネスロジック
+│       ├── __init__.py
+│       ├── slack_service.py    # Slack API（非同期）
+│       ├── gemini_service.py   # Gemini API（非同期）
+│       ├── notion_service.py   # Notion API（非同期）
+│       └── report_service.py   # 日報生成オーケストレーション
+├── utils/                      # ユーティリティ
+│   ├── __init__.py
+│   ├── formatter.py            # メッセージ整形・URL抽出
+│   └── time_utils.py           # 時刻処理（zoneinfo使用）
+├── run.py                      # ローカル開発用起動スクリプト
+├── gunicorn.conf.py            # Gunicorn設定（本番環境）
+├── requirements.txt            # Python依存パッケージ
+├── Dockerfile                  # コンテナイメージ定義
+├── deploy-simple.sh            # Cloud Runデプロイスクリプト
+└── .env                        # 環境変数（要作成）
+
+※ 旧ファイル（main.py, slack_client.py, gemini_client.py, notion_client.py）は
+  互換性のため残していますが、実際にはapp/配下の新しい構成を使用します。
 ```

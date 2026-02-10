@@ -1,7 +1,7 @@
 """Daily report generation service - Async version"""
 import asyncio
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from app.services.slack_service import fetch_all_channels_messages_async
 from app.services.gemini_service import summarize_channel_messages_async
 from app.services.notion_service import create_multiple_reports_async
@@ -38,18 +38,26 @@ async def process_channel_async(
     return channel_name, summary, urls
 
 
-async def generate_daily_report_async() -> Dict:
+async def generate_daily_report_async(
+    oldest: Optional[float] = None,
+    latest: Optional[float] = None
+) -> Dict:
     """
     日報を非同期で生成してNotionに投稿
-    
+
+    Args:
+        oldest: 開始時刻（UNIXタイムスタンプ）、Noneの場合はデフォルト
+        latest: 終了時刻（UNIXタイムスタンプ）、Noneの場合は現在時刻
+
     Returns:
         処理結果の辞書
     """
     print("[DEBUG] generate_daily_report_async() 開始")
-    
-    # 時刻範囲を取得
+
+    # 時刻範囲を取得（パラメータがない場合はデフォルト）
     print("[DEBUG] 時刻範囲を取得中...")
-    oldest, latest = get_today_range()
+    if oldest is None or latest is None:
+        oldest, latest = get_today_range()
     print(f"[DEBUG] 時刻範囲: {oldest} - {latest}")
     
     # 全チャンネルのメッセージを非同期で取得
