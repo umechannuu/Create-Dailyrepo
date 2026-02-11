@@ -10,6 +10,72 @@ from utils.formatter import format_slack_events
 # モジュールロード時に事前初期化（コールドスタート対策）
 genai.configure(api_key=settings.GEMINI_API_KEY)
 
+# Gemini APIが受け入れるスキーマ定義（辞書形式）
+# Pydanticモデルの$defs/$ref/title/default等は非対応のため、直接定義
+DAILY_REPORT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "work_content": {
+            "type": "array",
+            "description": "今日の作業内容。複数の話題に分けて記載",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "話題のタイトル"},
+                    "items": {
+                        "type": "array",
+                        "description": "箇条書き項目のリスト",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["title", "items"]
+            }
+        },
+        "insights": {
+            "type": "array",
+            "description": "得られた知見。複数の話題に分けて記載",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "話題のタイトル"},
+                    "items": {
+                        "type": "array",
+                        "description": "箇条書き項目のリスト",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["title", "items"]
+            }
+        },
+        "next_tasks": {
+            "type": "array",
+            "description": "次回の予定候補のリスト",
+            "items": {"type": "string"}
+        },
+        "suggested_todos": {
+            "type": "array",
+            "description": "AIが提案する具体的なTODO項目",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "TODO項目のタイトル"},
+                    "priority": {"type": "string", "description": "優先度（高・中・低のいずれか）"},
+                    "estimated_time": {"type": "string", "description": "想定所要時間。不明なら空文字"},
+                    "related_topic": {"type": "string", "description": "関連する話題。不明なら空文字"},
+                    "deadline": {"type": "string", "description": "期限。不明なら空文字"}
+                },
+                "required": ["title", "priority", "estimated_time", "related_topic", "deadline"]
+            }
+        },
+        "unfinished_tasks": {
+            "type": "array",
+            "description": "今日完了しなかった作業のリスト。なければ空リスト",
+            "items": {"type": "string"}
+        }
+    },
+    "required": ["work_content", "insights", "next_tasks", "suggested_todos", "unfinished_tasks"]
+}
+
 
 async def summarize_with_gemini_async(formatted_text: str) -> str:
     """
@@ -23,12 +89,12 @@ async def summarize_with_gemini_async(formatted_text: str) -> str:
     """
     import asyncio
     
-    # Structured outputを使用してモデルを設定
+    # Structured outputを使用してモデルを設定（辞書形式スキーマ）
     model = genai.GenerativeModel(
         'gemini-2.5-flash',
         generation_config={
             "response_mime_type": "application/json",
-            "response_schema": DailyReport,
+            "response_schema": DAILY_REPORT_SCHEMA,
         }
     )
     
@@ -57,9 +123,8 @@ async def summarize_with_gemini_async(formatted_text: str) -> str:
 - insights: 得られた知見を話題ごとに整理
 - next_tasks: 次回の予定候補（シンプルな箇条書き）
 - suggested_todos: 具体的なTODO項目（title, priority, estimated_time, related_topic, deadline を含む）
-- unfinished_tasks: 今日完了しなかった作業（あれば）
+- unfinished_tasks: 今日完了しなかった作業（なければ空リスト）
 """
-    
     
     try:
         # 非同期実行（CPUバウンドな処理をスレッドプールで実行）
@@ -84,7 +149,7 @@ async def summarize_with_gemini_async(formatted_text: str) -> str:
     except Exception as e:
         print(f"[ERROR] Gemini処理中にエラー: {type(e).__name__}: {str(e)}")
         print(f"[ERROR] レスポンステキスト: {response.text if 'response' in locals() else 'レスポンス取得前'}")
-        raise  # エラーを再送出して呼び出し元でキャッチ
+        raise
 
 
 
