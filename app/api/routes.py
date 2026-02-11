@@ -41,11 +41,25 @@ async def test_generation():
 async def background_report_task(
     response_url: Optional[str] = None,
     oldest: Optional[float] = None,
-    latest: Optional[float] = None
+    latest: Optional[float] = None,
+    range_description: Optional[str] = None
 ):
     """バックグラウンドで日報生成を実行"""
     try:
         print("[INFO] バックグラウンドで日報生成を開始...")
+        
+        # 開始通知をSlackに送信
+        if response_url and range_description:
+            start_message = {
+                "text": f"[INFO] 日報生成タスクを開始しました。\n対象期間: {range_description}",
+                "response_type": "in_channel"
+            }
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(response_url, json=start_message)
+            except Exception as notify_err:
+                print(f"[WARNING] 開始通知の送信に失敗: {notify_err}")
+        
         result = await generate_daily_report_async(oldest=oldest, latest=latest)
         print("[INFO] 日報生成が完了しました")
         
@@ -109,7 +123,7 @@ async def handle_slack_command(
             except Exception as e:
                 print(f"[ERROR] Cloud Tasks投入失敗: {e}")
                 # フォールバック: 直接バックグラウンド実行
-                await background_report_task(response_url, oldest, latest)
+                await background_report_task(response_url, oldest, latest, range_description)
         
         # バックグラウンドタスクとして起動（awaitしない）
         import asyncio
@@ -126,7 +140,7 @@ async def handle_slack_command(
         
         # asyncio.create_taskで非同期タスクを起動（awaitしない）
         import asyncio
-        asyncio.create_task(background_report_task(response_url, oldest, latest))
+        asyncio.create_task(background_report_task(response_url, oldest, latest, range_description))
         
         # 即座にレスポンスを返す（1秒以内）
         return {
@@ -149,7 +163,7 @@ async def execute_report_task(request: Request):
     print(f"[INFO] Cloud Tasksタスク実行開始: {range_description}")
     
     # 日報生成を実行
-    await background_report_task(response_url, oldest, latest)
+    await background_report_task(response_url, oldest, latest, range_description)
     
     return {"status": "success", "message": "日報生成タスクが完了しました"}
 
@@ -176,7 +190,7 @@ async def handle_slack_command_sync(
     
     # 処理を完全に待ってから応答
     print(f"[INFO] 日報生成を開始（同期処理）: {range_description}")
-    await background_report_task(response_url, oldest, latest)
+    await background_report_task(response_url, oldest, latest, range_description)
     
     # 処理完了後にレスポンス
     return {

@@ -1,6 +1,6 @@
 """Gemini API Service - Async version with structured output"""
 import google.generativeai as genai
-from typing import List, Dict
+from typing import List, Dict, Optional
 from app.core.config import settings
 from app.models.report import DailyReport
 from utils.formatter import format_slack_events
@@ -77,12 +77,16 @@ DAILY_REPORT_SCHEMA = {
 }
 
 
-async def summarize_with_gemini_async(formatted_text: str) -> str:
+async def summarize_with_gemini_async(
+    formatted_text: str,
+    past_context: Optional[str] = None
+) -> str:
     """
     Gemini APIを使って作業内容を非同期で要約（Structured Output使用）
     
     Args:
         formatted_text: フォーマットされたSlackメッセージ
+        past_context: 過去の日報テキスト（オプション）
         
     Returns:
         要約された日報テキスト（Markdown形式）
@@ -98,18 +102,31 @@ async def summarize_with_gemini_async(formatted_text: str) -> str:
         }
     )
     
+    # 過去の日報コンテキストを構築
+    past_context_section = ""
+    past_analysis_instructions = ""
+    if past_context:
+        past_context_section = f"""
+【過去の日報（参考）】
+{past_context}
+"""
+        past_analysis_instructions = """
+5. 過去の日報で未完了だったタスクの進捗を確認
+6. 継続作業の文脈を維持し、過去との関連性を踏まえて記載
+7. 過去の日報と重複する内容は簡潔にまとめる"""
+    
     prompt = f"""
 あなたは優秀なプロジェクトマネージャーです。
 以下のSlackでの作業メモを分析し、日報とTODO提案を作成してください。
 
 【今日のSlackメッセージ】
 {formatted_text}
-
+{past_context_section}
 【分析指示】
 1. 今日の作業内容を話題ごとに整理
 2. 得られた知見を抽出
 3. 未完了の作業を特定
-4. 次回の作業として必要なTODOを具体的に提案
+4. 次回の作業として必要なTODOを具体的に提案{past_analysis_instructions}
 
 【TODO提案の観点】
 - 今日の作業の続きとして必要なこと
@@ -153,18 +170,23 @@ async def summarize_with_gemini_async(formatted_text: str) -> str:
 
 
 
-async def summarize_channel_messages_async(channel_name: str, messages: List[Dict]) -> str:
+async def summarize_channel_messages_async(
+    channel_name: str,
+    messages: List[Dict],
+    past_context: Optional[str] = None
+) -> str:
     """
     特定チャンネルのメッセージを非同期で要約
     
     Args:
         channel_name: チャンネル名
         messages: メッセージのリスト
+        past_context: 過去の日報テキスト（オプション）
         
     Returns:
         要約された日報テキスト
     """
     formatted_text = format_slack_events(messages)
-    summary = await summarize_with_gemini_async(formatted_text)
+    summary = await summarize_with_gemini_async(formatted_text, past_context)
     
     return summary

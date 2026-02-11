@@ -4,14 +4,18 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from app.services.slack_service import fetch_all_channels_messages_async
 from app.services.gemini_service import summarize_channel_messages_async
-from app.services.notion_service import create_multiple_reports_async
+from app.services.notion_service import (
+    create_multiple_reports_async,
+    fetch_recent_reports_async
+)
 from utils.formatter import group_messages_by_channel, extract_all_urls_from_messages
 from utils.time_utils import get_today_range
 
 
 async def process_channel_async(
     channel_name: str, 
-    messages: List[Dict]
+    messages: List[Dict],
+    past_context: Optional[str] = None
 ) -> Tuple[str, str, List[str]]:
     """
     単一チャンネルの処理を非同期で実行
@@ -19,6 +23,7 @@ async def process_channel_async(
     Args:
         channel_name: チャンネル名
         messages: メッセージリスト
+        past_context: 過去の日報テキスト（オプション）
         
     Returns:
         (チャンネル名, 要約, URLリスト)
@@ -26,7 +31,7 @@ async def process_channel_async(
     print(f"[DEBUG] - {channel_name}: {len(messages)}件のメッセージを処理中")
     
     # 要約生成とURL抽出を並行実行
-    summary_task = summarize_channel_messages_async(channel_name, messages)
+    summary_task = summarize_channel_messages_async(channel_name, messages, past_context)
     urls = extract_all_urls_from_messages(messages)
     
     summary = await summary_task
@@ -60,10 +65,24 @@ async def generate_daily_report_async(
         oldest, latest = get_today_range()
     print(f"[DEBUG] 時刻範囲: {oldest} - {latest}")
     
-    # 全チャンネルのメッセージを非同期で取得
-    print("[DEBUG] Slackメッセージを取得中...")
-    messages = await fetch_all_channels_messages_async(oldest, latest)
+    # 全チャンネルのメッセージを非同期で取得（過去日報も並行取得）
+    print("[DEBUG] Slackメッセージと過去日報を取得中...")
+    messages_task = fetch_all_channels_messages_async(oldest, latest)
+    past_context_task = fetch_recent_reports_async(days=3)
+    
+    # 過去日報取得は失敗しても処理を続行
+    try:
+        past_context = await past_context_task
+    except Exception as e:
+        print(f"[WARNING] 過去日報の取得に失敗しました（無視して続行）: {e}")
+        past_context = ""
+    
+    messages = await messages_task
     print(f"[DEBUG] 取得したメッセージ数: {len(messages)}")
+    if past_context:
+        print(f"[DEBUG] 過去日報のコンテキスト: {len(past_context)} 文字")
+    else:
+        print("[DEBUG] 過去日報のコンテキストなし（初回実行または取得失敗）")
     
     if not messages:
         print("[WARNING] メッセージが見つかりませんでした")
@@ -80,7 +99,7 @@ async def generate_daily_report_async(
     # チャンネルごとに並列処理
     print("[DEBUG] チャンネルごとに並列処理中...")
     tasks = [
-        process_channel_async(channel_name, msgs)
+        process_channel_async(channel_name, msgs, past_context)
         for channel_name, msgs in channel_messages.items()
     ]
     
