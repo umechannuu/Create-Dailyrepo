@@ -1,5 +1,5 @@
 """Report data models for structured output"""
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel, Field
 
 
@@ -13,18 +13,9 @@ class TodoItem(BaseModel):
     """TODO項目"""
     title: str = Field(description="TODO項目のタイトル")
     priority: str = Field(description="優先度（高・中・低のいずれか）")
-    estimated_time: Optional[str] = Field(
-        description="想定所要時間（例: 1時間、30分）",
-        default=None
-    )
-    related_topic: Optional[str] = Field(
-        description="関連する話題・プロジェクト名",
-        default=None
-    )
-    deadline: Optional[str] = Field(
-        description="期限（YYYY-MM-DD形式、または「今週中」等）",
-        default=None
-    )
+    estimated_time: str = Field(description="想定所要時間（例: 1時間、30分。不明なら空文字）")
+    related_topic: str = Field(description="関連する話題・プロジェクト名。不明なら空文字")
+    deadline: str = Field(description="期限（YYYY-MM-DD形式、または今週中等。不明なら空文字）")
 
 
 class DailyReport(BaseModel):
@@ -41,9 +32,8 @@ class DailyReport(BaseModel):
     suggested_todos: List[TodoItem] = Field(
         description="AIが提案する具体的なTODO項目（優先度・所要時間付き）"
     )
-    unfinished_tasks: Optional[List[str]] = Field(
-        description="今日完了しなかった作業（あれば）",
-        default=None
+    unfinished_tasks: List[str] = Field(
+        description="今日完了しなかった作業のリスト。なければ空リスト"
     )
 
     def to_markdown(self) -> str:
@@ -77,6 +67,8 @@ class DailyReport(BaseModel):
                 line += f" (所要時間: {todo.estimated_time})"
             if todo.deadline:
                 line += f" 【期限: {todo.deadline}】"
+            if todo.related_topic:
+                line += f" ({todo.related_topic})"
             sections.append(line)
 
         # 未完了タスク
