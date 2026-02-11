@@ -122,9 +122,17 @@ uv run uvicorn app.main:app --reload --port 8080
 
 ### 本番環境（Google Cloud Run）
 
+**詳細なデプロイ手順は [デプロイガイド](docs/deploy_guide.md) を参照してください。**
+
 ```bash
-# デプロイ
+# 無料枠を最大限活用する設定でデプロイ
 ./deploy-app.sh
+
+# 環境変数を設定
+./setup-env.sh
+
+# （オプション）コールドスタート対策のウォームアップ設定
+./setup-warmup.sh
 
 # デプロイ後、SlackアプリのRequest URLを更新
 # https://<service-url>.run.app/slack/command

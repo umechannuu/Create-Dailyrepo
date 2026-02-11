@@ -1,7 +1,8 @@
 """API endpoints"""
-from fastapi import APIRouter, BackgroundTasks, Form, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Request
 from typing import Optional
 import httpx
+import os
 
 from app.services.report_service import generate_daily_report_async
 from utils.time_utils import parse_time_range
@@ -74,12 +75,11 @@ async def background_report_task(
 
 @router.post("/slack/command")
 async def handle_slack_command(
-    background_tasks: BackgroundTasks,
     command: str = Form(...),
     text: Optional[str] = Form(None),
     response_url: Optional[str] = Form(None)
 ):
-    """Slackのスラッシュコマンドを処理"""
+    """Slackのスラッシュコマンドを処理（Cloud Tasks版）"""
     
     if command != "/dailyreport":
         raise HTTPException(status_code=400, detail="無効なコマンドです。")
@@ -93,11 +93,81 @@ async def handle_slack_command(
             "text": f"[ERROR] 時間指定エラー: {str(e)}\n使用例: `/dailyreport 6` (6時間前から) または `/dailyreport 2026-01-06 09:00`"
         }
     
-    # バックグラウンドタスクを追加
-    background_tasks.add_task(background_report_task, response_url, oldest, latest)
+    # Cloud Tasksを使用するかどうか判定
+    use_cloud_tasks = os.getenv("USE_CLOUD_TASKS", "false").lower() == "true"
     
-    # 即座にレスポンスを返す（3秒以内）
+    if use_cloud_tasks:
+        # Cloud Tasksにタスクを投入（無料枠・確実）
+        from app.services.tasks_service import enqueue_report_generation
+        try:
+            await enqueue_report_generation(oldest, latest, range_description, response_url)
+            return {
+                "response_type": "in_channel",
+                "text": f"[INFO] 日報生成タスクを投入しました。\n対象期間: {range_description}"
+            }
+        except Exception as e:
+            print(f"[ERROR] Cloud Tasks投入失敗: {e}")
+            # フォールバック: 同期処理
+            await background_report_task(response_url, oldest, latest)
+            return {
+                "response_type": "in_channel",
+                "text": f"[INFO] 日報生成を完了しました（同期処理）。\n対象期間: {range_description}"
+            }
+    else:
+        # 同期処理版（Cloud Tasks未設定時）
+        print(f"[INFO] 日報生成を開始（同期処理）: {range_description}")
+        await background_report_task(response_url, oldest, latest)
+        return {
+            "response_type": "in_channel",
+            "text": f"[INFO] 日報生成を完了しました。\n対象期間: {range_description}"
+        }
+
+
+@router.post("/tasks/generate-report")
+async def execute_report_task(request: Request):
+    """Cloud Tasksから呼び出される日報生成タスク"""
+    
+    # リクエストボディを取得
+    body = await request.json()
+    oldest = body.get("oldest")
+    latest = body.get("latest")
+    range_description = body.get("range_description")
+    response_url = body.get("response_url")
+    
+    print(f"[INFO] Cloud Tasksタスク実行開始: {range_description}")
+    
+    # 日報生成を実行
+    await background_report_task(response_url, oldest, latest)
+    
+    return {"status": "success", "message": "日報生成タスクが完了しました"}
+
+
+@router.post("/slack/command-sync")
+async def handle_slack_command_sync(
+    command: str = Form(...),
+    text: Optional[str] = Form(None),
+    response_url: Optional[str] = Form(None)
+):
+    """Slackのスラッシュコマンドを処理（同期処理版・レガシー）"""
+    
+    if command != "/dailyreport":
+        raise HTTPException(status_code=400, detail="無効なコマンドです。")
+    
+    # 時間範囲をパース
+    try:
+        oldest, latest, range_description = parse_time_range(text)
+    except ValueError as e:
+        return {
+            "response_type": "ephemeral",
+            "text": f"[ERROR] 時間指定エラー: {str(e)}\n使用例: `/dailyreport 6` (6時間前から) または `/dailyreport 2026-01-06 09:00`"
+        }
+    
+    # 処理を完全に待ってから応答
+    print(f"[INFO] 日報生成を開始（同期処理）: {range_description}")
+    await background_report_task(response_url, oldest, latest)
+    
+    # 処理完了後にレスポンス
     return {
         "response_type": "in_channel",
-        "text": f"[INFO] 日報生成を開始しました。\n対象期間: {range_description}"
+        "text": f"[INFO] 日報生成を完了しました。\n対象期間: {range_description}"
     }

@@ -12,10 +12,7 @@ class TopicDetail(BaseModel):
 class TodoItem(BaseModel):
     """TODO項目"""
     title: str = Field(description="TODO項目のタイトル")
-    priority: str = Field(
-        description="優先度（高・中・低）",
-        pattern="^(高|中|低)$"
-    )
+    priority: str = Field(description="優先度（高・中・低のいずれか）")
     estimated_time: Optional[str] = Field(
         description="想定所要時間（例: 1時間、30分）",
         default=None

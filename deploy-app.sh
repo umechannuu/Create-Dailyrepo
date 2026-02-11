@@ -23,7 +23,8 @@ echo ""
 echo "環境変数は ./setup-env.sh で事前に設定する必要があります"
 echo ""
 
-# デプロイ実行
+# デプロイ実行（無料枠最適化版）
+echo "無料枠を最大限活用する設定でデプロイします..."
 gcloud run deploy $SERVICE_NAME \
   --source . \
   --platform managed \
@@ -31,7 +32,11 @@ gcloud run deploy $SERVICE_NAME \
   --allow-unauthenticated \
   --timeout 300 \
   --memory 512Mi \
-  --cpu 1
+  --cpu 1 \
+  --min-instances 0 \
+  --max-instances 1 \
+  --cpu-throttling \
+  --no-cpu-boost
 
 if [ $? -eq 0 ]; then
     echo ""

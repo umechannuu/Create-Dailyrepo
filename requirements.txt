@@ -4,6 +4,7 @@ gunicorn
 httpx
 requests
 google-generativeai
+google-cloud-tasks
 python-dotenv
 python-multipart
 pydantic>=2.0.0
