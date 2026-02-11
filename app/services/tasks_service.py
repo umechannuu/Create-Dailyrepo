@@ -1,5 +1,6 @@
 """Cloud Tasks Service - 非同期タスク実行"""
 import json
+import asyncio
 from typing import Optional
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
@@ -20,7 +21,7 @@ async def enqueue_report_generation(
     response_url: Optional[str] = None
 ):
     """
-    日報生成タスクをCloud Tasksキューに投入
+    日報生成タスクをCloud Tasksキューに投入（非同期）
     
     Args:
         oldest: 開始時刻（UNIXタイムスタンプ）
@@ -36,10 +37,6 @@ async def enqueue_report_generation(
     if not project:
         print("[WARNING] GCP_PROJECT環境変数が未設定。Cloud Tasksをスキップします")
         return None
-    
-    # Cloud Tasksクライアント
-    client = create_task_client()
-    parent = client.queue_path(project, location, queue)
     
     # タスクのペイロード
     payload = {
@@ -61,8 +58,15 @@ async def enqueue_report_generation(
         }
     }
     
-    # タスクをキューに投入
-    response = client.create_task(request={"parent": parent, "task": task})
-    print(f"[INFO] Cloud Tasksにタスクを投入しました: {response.name}")
+    # 同期処理を非同期で実行（スレッドプールで実行）
+    def _enqueue_task():
+        client = create_task_client()
+        parent = client.queue_path(project, location, queue)
+        response = client.create_task(request={"parent": parent, "task": task})
+        print(f"[INFO] Cloud Tasksにタスクを投入しました: {response.name}")
+        return response
+    
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(None, _enqueue_task)
     
     return response

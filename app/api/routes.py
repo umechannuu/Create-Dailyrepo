@@ -97,29 +97,41 @@ async def handle_slack_command(
     use_cloud_tasks = os.getenv("USE_CLOUD_TASKS", "false").lower() == "true"
     
     if use_cloud_tasks:
-        # Cloud Tasksにタスクを投入（無料枠・確実）
-        from app.services.tasks_service import enqueue_report_generation
-        try:
-            await enqueue_report_generation(oldest, latest, range_description, response_url)
-            return {
-                "response_type": "in_channel",
-                "text": f"[INFO] 日報生成タスクを投入しました。\n対象期間: {range_description}"
-            }
-        except Exception as e:
-            print(f"[ERROR] Cloud Tasks投入失敗: {e}")
-            # フォールバック: 同期処理
-            await background_report_task(response_url, oldest, latest)
-            return {
-                "response_type": "in_channel",
-                "text": f"[INFO] 日報生成を完了しました（同期処理）。\n対象期間: {range_description}"
-            }
-    else:
-        # 同期処理版（Cloud Tasks未設定時）
-        print(f"[INFO] 日報生成を開始（同期処理）: {range_description}")
-        await background_report_task(response_url, oldest, latest)
+        # Cloud Tasksにタスクをバックグラウンドで投入（即座にレスポンス）
+        print(f"[INFO] Cloud Tasksタスクを投入中: {range_description}")
+        
+        # バックグラウンドでCloud Tasks投入を実行
+        async def enqueue_task_in_background():
+            from app.services.tasks_service import enqueue_report_generation
+            try:
+                await enqueue_report_generation(oldest, latest, range_description, response_url)
+                print("[INFO] Cloud Tasksタスク投入成功")
+            except Exception as e:
+                print(f"[ERROR] Cloud Tasks投入失敗: {e}")
+                # フォールバック: 直接バックグラウンド実行
+                await background_report_task(response_url, oldest, latest)
+        
+        # バックグラウンドタスクとして起動（awaitしない）
+        import asyncio
+        asyncio.create_task(enqueue_task_in_background())
+        
+        # 即座にレスポンスを返す
         return {
             "response_type": "in_channel",
-            "text": f"[INFO] 日報生成を完了しました。\n対象期間: {range_description}"
+            "text": f"[INFO] 日報生成タスクを投入しました。\n対象期間: {range_description}\n\n完了したら通知します。"
+        }
+    else:
+        # バックグラウンド処理版（Cloud Tasks未設定時）
+        print(f"[INFO] 日報生成を開始（バックグラウンド）: {range_description}")
+        
+        # asyncio.create_taskで非同期タスクを起動（awaitしない）
+        import asyncio
+        asyncio.create_task(background_report_task(response_url, oldest, latest))
+        
+        # 即座にレスポンスを返す（1秒以内）
+        return {
+            "response_type": "in_channel",
+            "text": f"[INFO] 日報生成を開始しました。\n対象期間: {range_description}\n\n完了したら通知します。"
         }
 
 
