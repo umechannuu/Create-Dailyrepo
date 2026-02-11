@@ -96,9 +96,20 @@ async def generate_daily_report_async(
             continue
         
         channel_name, summary, urls = result
+        print(f"[DEBUG] チャンネル要約取得: {channel_name} - {len(summary)} 文字")
         channel_summaries[channel_name] = summary
         if urls:
             channel_urls[channel_name] = urls
+    
+    # channel_summariesの確認
+    print(f"[DEBUG] 要約取得件数: {len(channel_summaries)}件")
+    if not channel_summaries:
+        print("[WARNING] 要約が1件も取得できませんでした")
+        return {
+            "status": "error",
+            "message": "全てのチャンネルで要約生成に失敗しました",
+            "channels_processed": 0
+        }
     
     # Notionに並列投稿
     print("[DEBUG] Notionに投稿中...")

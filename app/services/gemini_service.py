@@ -60,15 +60,31 @@ async def summarize_with_gemini_async(formatted_text: str) -> str:
 - unfinished_tasks: 今日完了しなかった作業（あれば）
 """
     
-    # 非同期実行（CPUバウンドな処理をスレッドプールで実行）
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(None, model.generate_content, prompt)
     
-    # JSONレスポンスをPydanticモデルにパース
-    report = DailyReport.model_validate_json(response.text)
-    
-    # Markdown形式に変換して返す
-    return report.to_markdown()
+    try:
+        # 非同期実行（CPUバウンドな処理をスレッドプールで実行）
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, model.generate_content, prompt)
+        
+        print(f"[DEBUG] Gemini API レスポンス受信 - 長さ: {len(response.text)} 文字")
+        
+        # JSONレスポンスをPydanticモデルにパース
+        report = DailyReport.model_validate_json(response.text)
+        
+        print(f"[DEBUG] Pydanticモデルパース成功")
+        print(f"[DEBUG]   - work_content: {len(report.work_content)}件")
+        print(f"[DEBUG]   - suggested_todos: {len(report.suggested_todos)}件")
+        
+        # Markdown形式に変換して返す
+        markdown = report.to_markdown()
+        print(f"[DEBUG] Markdown変換完了 - {len(markdown)} 文字")
+        
+        return markdown
+        
+    except Exception as e:
+        print(f"[ERROR] Gemini処理中にエラー: {type(e).__name__}: {str(e)}")
+        print(f"[ERROR] レスポンステキスト: {response.text if 'response' in locals() else 'レスポンス取得前'}")
+        raise  # エラーを再送出して呼び出し元でキャッチ
 
 
 
