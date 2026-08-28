@@ -49,3 +49,17 @@ data/
 uv.lock
 
 docs/
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Deploy / setup scripts (local only)
+deploy-app.sh
+deploy-app-demo.sh
+setup-cloudtasks.sh
+setup-env.sh
+setup-slack-interactive.sh
+setup-warmup.sh
+tests/deploy.sh
+tests/check-deploy.sh
